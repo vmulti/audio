@@ -9,89 +9,106 @@ import sokol.audio as saudio
 
 const (
 	tau    = 2 * math.pi
-	transi = 5000
+	transi = 500
 )
+
+[inline]
+fn midi2freq(midi byte) f32 {
+	return int(math.powf(2, f32(midi - 69) / 12) * 440)
+}
 
 pub struct Note {
 mut:
 	freq   f32
 	vol    f32
-	step   int
+	step   u32
 	paused bool
 }
 
-[inline]
-fn square(note &Note, time f32, amp f32) f32 {
-	t := time * note.freq
-	f := t - int(t)
-	return if f < 0.5 {
-		amp
-	} else {
-		-amp
-	}
-}
+type NextFn = fn (freq f32, time f32, amp f32) f32
 
 [inline]
-fn triangle(note &Note, time f32, amp f32) f32 {
-	t := time * note.freq
+fn square(freq f32, time f32, amp f32) f32 {
+	t := time * freq
+	f := t - int(t)
+	return if f < 0.5 { amp / 2  } else { -amp / 2 }
+}
+
+// pure triangle wave
+[inline]
+fn triangle(freq f32, time f32, amp f32) f32 {
+	t := time * freq
 	f := t - int(t)
 	return f32(2 * math.abs(2 * (f - 0.5)) - 1) * amp
 }
 
+// pure sawtooth wave
 [inline]
-fn sawtooth(note &Note, time f32, amp f32) f32 {
-	t := time * note.freq
+fn sawtooth(freq f32, time f32, amp f32) f32 {
+	t := time * freq
 	f := t - int(t)
-	return f32(2 * (f - 0.5)) * (amp / 2)
+	return f32(2 * (f - 0.5)) * amp / 2
+}
+
+// pure sine wave
+[inline]
+fn sine(freq f32, time f32, amp f32) f32 {
+	return math.sinf(audio.tau * time * freq) * amp
+}
+
+// sine wave, imitating an organ
+[inline]
+fn organ(freq f32, time f32, amp f32) f32 {
+	return math.sinf(audio.tau * time * freq) * amp
+		+ math.sinf(audio.tau * time * freq * 3 / 2) * amp / 5
 }
 
 [inline]
-fn sine(note &Note, time f32, amp f32) f32 {
-	return math.sinf(audio.tau * time * note.freq) * amp
+// triangle wave, imitating an organ
+fn torgan(freq f32, time f32, amp f32) f32 {
+	t := time * freq
+	return f32(2 * math.abs(2 * (t - int(t) - 0.5)) - 1) * amp
+		+ f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 10
 }
 
 fn (c &Context) next(mut note Note, time f32) f32 {
-	mut vol := f32(0.0)
 	if !note.paused {
-		if note.step < audio.transi {
-			vol = note.vol * smoothstep(0, audio.transi, note.step)
-			note.step++
-		} else {
-			vol = note.vol
-		}
-	} else if note.paused && note.step >= 0 {
-		vol = note.vol * smoothstep(0, audio.transi, note.step)
+		note.step++
+		return c.next_fn(note.freq, time, note.damp())
+	} else if note.step >= 0 {
 		note.step--
+		return c.next_fn(note.freq, time, note.damp())
 	}
-	return c.next_fn(note, time, vol)
+	return 0
 }
 
-type NextFn = fn (n &Note, t f32, amp f32) f32
+[inline]
+fn (n Note) damp() f32 {
+	if n.step < 200 { return n.vol / 4 }
+	r := f32(saudio.sample_rate()) / 2
+	return f32((n.vol * r / 2) / (n.step + r)) + math.sinf(f32(n.step) / 10) * 0.003 // slight vibrato
+}
 
 pub struct Context {
 mut:
 	next_fn NextFn
-	notes   []Note
+	notes   [128]Note
 	t       f32
 }
 
-pub fn (mut ctx Context) play(freq f32, volume f32) {
-	ctx.notes << Note{freq, volume, 0, false}
+const damp_rate = 4
+
+[inline]
+pub fn (mut ctx Context) play(midi byte, volume f32) {
+	ctx.notes[midi].paused = false
+	ctx.notes[midi].vol = volume / f32(damp_rate)
+	ctx.notes[midi].step = 1
 }
 
-pub fn (mut ctx Context) pause(freq f32) {
-	// Modifying the array here crashes the program
-	// ctx.notes = ctx.notes.filter(it.step != -1)
-	for i in 0 .. ctx.notes.len {
-		if ctx.notes[i].freq == freq {
-			ctx.notes[i].paused = true
-		}
-	}
-}
-
-fn smoothstep(edge0 f64, edge1 f64, val f64) f32 {
-	x := clamp((val - edge0) / (edge1 - edge0), 0.0, 1.0)
-	return f32(x * x * x * (x * (x * 6 - 15) + 10))
+[inline]
+pub fn (mut ctx Context) pause(midi byte) {
+	ctx.notes[midi].paused = true
+	ctx.notes[midi].step = 1000
 }
 
 fn clamp(x f64, lowerlimit f64, upperlimit f64) f64 {
@@ -113,7 +130,7 @@ fn audio_cb(mut buffer &f32, num_frames int, num_channels int, mut ctx Context) 
 				idx := frame * num_channels + ch
 				buffer[idx] = 0
 				for i, note in ctx.notes {
-					if note.step != -1 {
+					if note.step > 0 {
 						buffer[idx] += ctx.next(mut ctx.notes[i], ctx.t)
 					}
 				}
@@ -136,10 +153,15 @@ fn audio_cb(mut buffer &f32, num_frames int, num_channels int, mut ctx Context) 
 }
 
 pub enum WaveKind {
+	// pure waves
 	sine
 	square
 	triangle
 	sawtooth
+
+	// composite functions
+	organ
+	torgan
 }
 
 pub struct Config {
@@ -152,15 +174,24 @@ pub fn new_context(cfg Config) &Context {
 		.square { square }
 		.triangle { triangle }
 		.sawtooth { sawtooth }
+
+		.organ { organ }
+		.torgan { torgan }
 	}
 	mut ctx := &Context{
-		notes: []
-		t: 0
 		next_fn: next_fn
 	}
+	for i, mut note in ctx.notes {
+		bi := byte(i)
+		note.freq = midi2freq(bi)
+		note.paused = true
+		note.step = 0
+	}
+
 	saudio.setup(
 		user_data: ctx
 		stream_userdata_cb: audio_cb
+		buffer_frames: 128
 	)
 	return ctx
 }
