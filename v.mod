@@ -1,6 +1,6 @@
 Module {
-	name: 'vidi'
-	description: 'a v library for realtime midi using native apis'
-	version: '0.1.0'
+	name: 'audio'
+	description: 'a V module for generating and playing audio waves'
+	version: '0.2.0'
 	dependencies: []
 }

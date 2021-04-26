@@ -61,6 +61,7 @@ fn sine(freq f32, time f32, amp f32) f32 {
 fn organ(freq f32, time f32, amp f32) f32 {
 	return math.sinf(audio.tau * time * freq) * amp
 		+ math.sinf(audio.tau * time * freq * 3 / 2) * amp / 5
+		+ math.sinf(audio.tau * time * freq * 2) * amp / 10
 }
 
 [inline]
@@ -69,7 +70,8 @@ fn torgan(freq f32, time f32, amp f32) f32 {
 	t := time * freq
 	return f32(2 * math.abs(2 * (t - int(t) - 0.5)) - 1) * amp
 		+ f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 10
-}
+		+ f32(2 * math.abs(2 * (t * 2 - int(t * 2) - 0.5)) - 1) * amp / 5
+	}
 
 fn (c &Context) next(mut note Note, time f32) f32 {
 	if !note.paused {
@@ -101,7 +103,8 @@ const damp_rate = 4
 [inline]
 pub fn (mut ctx Context) play(midi byte, volume f32) {
 	ctx.notes[midi].paused = false
-	ctx.notes[midi].vol = volume / f32(damp_rate)
+	// bass-boost the lower notes, since high notes inherently sound louder
+	ctx.notes[midi].vol = volume * (-f32(math.atan(f64(midi) / 32 - 0.5)) + 1.5)
 	ctx.notes[midi].step = 1
 }
 
