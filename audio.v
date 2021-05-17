@@ -25,10 +25,10 @@ mut:
 	paused bool
 }
 
-type NextFn = fn (freq f32, time f32, amp f32) f32
+type NextFn = fn (freq f32, time f64, amp f32) f32
 
 [inline]
-fn square(freq f32, time f32, amp f32) f32 {
+fn square(freq f32, time f64, amp f32) f32 {
 	t := time * freq
 	f := t - int(t)
 	return if f < 0.5 { amp / 2  } else { -amp / 2 }
@@ -36,7 +36,7 @@ fn square(freq f32, time f32, amp f32) f32 {
 
 // pure triangle wave
 [inline]
-fn triangle(freq f32, time f32, amp f32) f32 {
+fn triangle(freq f32, time f64, amp f32) f32 {
 	t := time * freq
 	f := t - int(t)
 	return f32(2 * math.abs(2 * (f - 0.5)) - 1) * amp
@@ -44,7 +44,7 @@ fn triangle(freq f32, time f32, amp f32) f32 {
 
 // pure sawtooth wave
 [inline]
-fn sawtooth(freq f32, time f32, amp f32) f32 {
+fn sawtooth(freq f32, time f64, amp f32) f32 {
 	t := time * freq
 	f := t - int(t)
 	return f32(2 * (f - 0.5)) * amp / 2
@@ -52,28 +52,28 @@ fn sawtooth(freq f32, time f32, amp f32) f32 {
 
 // pure sine wave
 [inline]
-fn sine(freq f32, time f32, amp f32) f32 {
-	return math.sinf(audio.tau * time * freq) * amp
+fn sine(freq f32, time f64, amp f32) f32 {
+	return f32(math.sin(audio.tau * time * freq) * amp)
 }
 
 // sine wave, imitating an organ
 [inline]
-fn organ(freq f32, time f32, amp f32) f32 {
-	return math.sinf(audio.tau * time * freq) * amp
-		+ math.sinf(audio.tau * time * freq * 3 / 2) * amp / 5
-		+ math.sinf(audio.tau * time * freq * 2) * amp / 10
+fn organ(freq f32, time f64, amp f32) f32 {
+	return f32(math.sin(audio.tau * time * freq) * amp
+		+ math.sin(audio.tau * time * freq * 3 / 2) * amp / 5
+		+ math.sin(audio.tau * time * freq * 2) * amp / 5)
 }
 
 [inline]
 // triangle wave, imitating an organ
-fn torgan(freq f32, time f32, amp f32) f32 {
+fn torgan(freq f32, time f64, amp f32) f32 {
 	t := time * freq
 	return f32(2 * math.abs(2 * (t - int(t) - 0.5)) - 1) * amp
-		+ f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 10
-		+ f32(2 * math.abs(2 * (t * 2 - int(t * 2) - 0.5)) - 1) * amp / 5
+		+ f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 8
+		+ f32(2 * math.abs(2 * (t / 2 - int(t / 2) - 0.5)) - 1) * amp / 5
 	}
 
-fn (c &Context) next(mut note Note, time f32) f32 {
+fn (c &Context) next(mut note Note, time f64) f32 {
 	if !note.paused {
 		note.step++
 		return c.next_fn(note.freq, time, note.damp())
@@ -84,21 +84,21 @@ fn (c &Context) next(mut note Note, time f32) f32 {
 	return 0
 }
 
+fn C.expf(x f32) f32
+
 [inline]
 fn (n Note) damp() f32 {
-	if n.step < 200 { return n.vol / 4 }
-	r := f32(saudio.sample_rate()) / 2
-	return f32((n.vol * r / 2) / (n.step + r)) + math.sinf(f32(n.step) / 10) * 0.003 // slight vibrato
+	return n.vol * C.expf(-f32(n.step) * 5 / saudio.sample_rate())
 }
 
 pub struct Context {
 mut:
 	next_fn NextFn
 	notes   [128]Note
-	t       f32
+	t       f64
 }
 
-const damp_rate = 4
+const damp_rate = 8.
 
 [inline]
 pub fn (mut ctx Context) play(midi byte, volume f32) {
@@ -131,7 +131,7 @@ fn audio_cb(mut buffer &f32, num_frames int, num_channels int, mut ctx Context) 
 		for frame in 0 .. num_frames {
 			for ch in 0 .. num_channels {
 				idx := frame * num_channels + ch
-				buffer[idx] = 0
+				buffer[idx] = 0.
 				for i, note in ctx.notes {
 					if note.step > 0 {
 						buffer[idx] += ctx.next(mut ctx.notes[i], ctx.t)
