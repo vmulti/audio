@@ -88,7 +88,7 @@ fn C.expf(x f32) f32
 
 [inline]
 fn (n Note) damp() f32 {
-	return n.vol * C.expf(-f32(n.step) * 5 / saudio.sample_rate())
+	return n.vol * C.expf(-f32(n.step) * 2.5 / saudio.sample_rate())
 }
 
 pub struct Context {
@@ -98,13 +98,13 @@ mut:
 	t       f64
 }
 
-const damp_rate = 8.
+const gain = 0.5
 
 [inline]
 pub fn (mut ctx Context) play(midi byte, volume f32) {
 	ctx.notes[midi].paused = false
 	// bass-boost the lower notes, since high notes inherently sound louder
-	ctx.notes[midi].vol = volume * (-f32(math.atan(f64(midi) / 32 - 0.5)) + 1.5)
+	ctx.notes[midi].vol = volume * (-f32(math.atan(f64(midi) / 32 - 0.5)) + 1.5) * gain
 	ctx.notes[midi].step = 1
 }
 
