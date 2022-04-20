@@ -13,7 +13,7 @@ const (
 )
 
 [inline]
-fn midi2freq(midi byte) f32 {
+fn midi2freq(midi u8) f32 {
 	return int(math.powf(2, f32(midi - 69) / 12) * 440)
 }
 
@@ -31,7 +31,7 @@ type NextFn = fn (freq f32, time f64, amp f32) f32
 fn square(freq f32, time f64, amp f32) f32 {
 	t := time * freq
 	f := t - int(t)
-	return if f < 0.5 { amp / 2  } else { -amp / 2 }
+	return if f < 0.5 { amp / 2 } else { -amp / 2 }
 }
 
 // pure triangle wave
@@ -59,19 +59,19 @@ fn sine(freq f32, time f64, amp f32) f32 {
 // sine wave, imitating an organ
 [inline]
 fn organ(freq f32, time f64, amp f32) f32 {
-	return f32(math.sin(audio.tau * time * freq) * amp
-		+ math.sin(audio.tau * time * freq * 3 / 2) * amp / 5
-		+ math.sin(audio.tau * time * freq * 2) * amp / 5)
+	return f32(math.sin(audio.tau * time * freq) * amp +
+		math.sin(audio.tau * time * freq * 3 / 2) * amp / 5 +
+		math.sin(audio.tau * time * freq * 2) * amp / 5)
 }
 
-[inline]
 // triangle wave, imitating an organ
+[inline]
 fn torgan(freq f32, time f64, amp f32) f32 {
 	t := time * freq
-	return f32(2 * math.abs(2 * (t - int(t) - 0.5)) - 1) * amp
-		+ f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 8
-		+ f32(2 * math.abs(2 * (t / 2 - int(t / 2) - 0.5)) - 1) * amp / 5
-	}
+	return f32(2 * math.abs(2 * (t - int(t) - 0.5)) - 1) * amp +
+		f32(2 * math.abs(2 * (t * 3 / 2 - int(t * 3 / 2) - 0.5)) - 1) * amp / 8 +
+		f32(2 * math.abs(2 * (t / 2 - int(t / 2) - 0.5)) - 1) * amp / 5
+}
 
 fn (c &Context) next(mut note Note, time f64) f32 {
 	if !note.paused {
@@ -101,15 +101,15 @@ mut:
 const gain = 0.5
 
 [inline]
-pub fn (mut ctx Context) play(midi byte, volume f32) {
+pub fn (mut ctx Context) play(midi u8, volume f32) {
 	ctx.notes[midi].paused = false
 	// bass-boost the lower notes, since high notes inherently sound louder
-	ctx.notes[midi].vol = volume * (-f32(math.atan(f64(midi) / 32 - 0.5)) + 1.5) * gain
+	ctx.notes[midi].vol = volume * (-f32(math.atan(f64(midi) / 32 - 0.5)) + 1.5) * audio.gain
 	ctx.notes[midi].step = 1
 }
 
 [inline]
-pub fn (mut ctx Context) pause(midi byte) {
+pub fn (mut ctx Context) pause(midi u8) {
 	ctx.notes[midi].paused = true
 	ctx.notes[midi].step = 1000
 }
@@ -131,7 +131,7 @@ fn audio_cb(mut buffer &f32, num_frames int, num_channels int, mut ctx Context) 
 		for frame in 0 .. num_frames {
 			for ch in 0 .. num_channels {
 				idx := frame * num_channels + ch
-				buffer[idx] = 0.
+				buffer[idx] = 0.0
 				for i, note in ctx.notes {
 					if note.step > 0 {
 						buffer[idx] += ctx.next(mut ctx.notes[i], ctx.t)
@@ -161,7 +161,6 @@ pub enum WaveKind {
 	square
 	triangle
 	sawtooth
-
 	// composite functions
 	organ
 	torgan
@@ -172,20 +171,22 @@ pub struct Config {
 }
 
 pub fn new_context(cfg Config) &Context {
-	next_fn := match cfg.wave_kind {
-		.sine { sine }
-		.square { square }
-		.triangle { triangle }
-		.sawtooth { sawtooth }
-
-		.organ { organ }
-		.torgan { torgan }
+	mut next_fn := fn (a f32, b f64, c f32) f32 {
+		return 0
+	}
+	match cfg.wave_kind {
+		.sine { next_fn = sine }
+		.square { next_fn = square }
+		.triangle { next_fn = triangle }
+		.sawtooth { next_fn = sawtooth }
+		.organ { next_fn = organ }
+		.torgan { next_fn = torgan }
 	}
 	mut ctx := &Context{
 		next_fn: next_fn
 	}
 	for i, mut note in ctx.notes {
-		bi := byte(i)
+		bi := u8(i)
 		note.freq = midi2freq(bi)
 		note.paused = true
 		note.step = 0
